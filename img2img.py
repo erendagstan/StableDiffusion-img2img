@@ -67,7 +67,7 @@ def task1_imp(user_image, user_prompt, user_color):
     if images and hasattr(images, 'images') and isinstance(images.images, list) and isinstance(images.images[0],
                                                                                                Image.Image):
 
-        sonuc_path = "C:/Users/ASUS/PycharmProjects/spaceship-titanic/task1_generated_photo/task1_6.png"
+        sonuc_path = "C:/Users/ASUS/PycharmProjects/spaceship-titanic/task1_generated_photo/task1_7.png"
         images.images[0].save(sonuc_path)
         return images
     else:
@@ -219,7 +219,7 @@ def task2_imp(image, logo_path, button_color, punchline_text, button_text):
         # button
         yeni_gorsel = add_button(yeni_gorsel, button_text=button_text, button_color=button_color)
         # Sonucu kaydet
-        sonuc_path = "C:/Users/ASUS/PycharmProjects/spaceship-titanic/task2_generated_photo/task2_6.png"
+        sonuc_path = "C:/Users/ASUS/PycharmProjects/spaceship-titanic/task2_generated_photo/task2_7.png"
         yeni_gorsel.save(sonuc_path)
         return yeni_gorsel
     else:
