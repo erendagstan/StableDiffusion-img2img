@@ -1,4 +1,5 @@
 ###############################################################################
+# importing libraries
 from torch import autocast
 import torch
 import requests
@@ -17,7 +18,8 @@ pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
     torch_dtype=torch.float16,
     use_auth_token=True
 ).to(device)
-""" # for control 
+""" 
+# for control of cuda is available! if not -> Search/GPU -> Hardware Accelerated GPU Configuration -> ON
 import torch
 print(torch.cuda.is_available())
 """
@@ -31,32 +33,51 @@ print(torch.cuda.is_available())
 ########################## TASK 1 ##########################
 
 def user_color_adder(prompt, user_color):
+    """
+    color adder function according to user_color & prompt
+    :param prompt: text -> string
+    :param user_color: color(hex code) -> string
+    :return: text -> string
+    """
     text = prompt + "with a specified color hex code: (" + user_color + ") , COLOR : "
     return text
 
 
 def create_image(init_image, prompt, user_color):
+    """
+    creating image using prompt & init image (user's selected)
+    :param init_image: Image
+    :param prompt: user_prompt -> string
+    :param user_color: color -> string (hex code)
+    :return: images -> Image
+    """
     # for url
-    # response = requests.get(url)  # take photo
-    # init_image = Image.open(BytesIO(response.content)).convert("RGB")  # not RGBA
+    """response = requests.get(url)  # take photo
+    init_image = Image.open(BytesIO(response.content)).convert("RGB")  # not RGBA"""
     # resizing
-    init_image = init_image.resize((512, 512))  # 768,512
+    init_image = init_image.resize((512, 512))  # square / can be (768,512)
     user_color_adder(prompt, user_color)  # that func add color to prompt
     prompt_last = user_color_adder(prompt, user_color)  # added color palette
     with autocast("cuda"):
         images = pipe(prompt=prompt_last, image=init_image, strength=0.75, guidance_scale=7.5)  # generating images
     return images  # return image
 
-#C:/Users/ASUS/Desktop/kahve.png, C:/Users/ASUS/Desktop/kahve2.png
-user_image = input("Resim dosyasının yolunu girin (örneğin: image.png): ")  # C:\Users\ASUS\PycharmProjects\spaceship-titanic\photos\kahve2.PNG, C:\Users\ASUS\PycharmProjects\spaceship-titanic\photos\kahve.png
+# taking input from user
+user_image = input("Resim dosyasının yolunu girin (örneğin: image.png): ")  # C:/Users/ASUS/Desktop/kahve.png, C:/Users/ASUS/Desktop/kahve2.png
 user_prompt = input(
     "Promptu girin: ")  # Chocolate coffee, Taken under natural light, a photograph can create a warm and inviting atmosphere. If the shoot is outdoors, the sunlight can beautifully highlight the froth on the coffee, adding a lovely emphasis to the cup.
 user_color = input("Görselde kullanmak için bir renk girin (hex kodu): ")  # #0000ff
 
-
-# url2 = Image.open(user_image)
-
+# implementation of task1
 def task1_imp(user_image, user_prompt, user_color):
+    """
+    Processes Task 1 by adding color to the user prompt text on the given image.
+
+    :param user_image: image (from task1)
+    :param user_prompt: string -> text (user_prompt)
+    :param user_color: string -> color (hex code)
+    :return: Image -> image & save selected path
+    """
     # open with image to user_photo
     user_image = Image.open(user_image)
     # color adder func implementation
@@ -74,10 +95,8 @@ def task1_imp(user_image, user_prompt, user_color):
         print("Error: The images object is empty or does not contain a PIL Image object.")
 
 
-# applying & saving image to images
+# applying task 1 implementation & saving generated image
 images = task1_imp(user_image, user_prompt, user_color)
-#ff0000
-
 
 
 ########################## TASK 2 ##########################
@@ -87,6 +106,11 @@ from PIL import Image, ImageDraw, ImageFont
 # import svgwrite
 
 def cerceve(images):
+    """
+    Adds a white frame around the generated image
+    :param images: PIL.Image -> generated image
+    :return: PIL.Image -> with added frame
+    """
     cerceve_genislik = 350
     # Çerçeve rengini belirle (255 beyaz için)
     cerceve_rengi = (255, 255, 255)
@@ -100,17 +124,18 @@ def cerceve(images):
 
 
 def logo_add(yeni_gorsel, logo_path="C:/Users/ASUS/PycharmProjects/spaceship-titanic/logos/cland.png"):
-    # logo
-    # logo_path = "C:/Users/ASUS/Desktop/pngtree-hand.jpg"
+    """
+    Adds the specified logo on top of the generated image.
+    :param yeni_gorsel: Image -> Image to add the logo to
+    :param logo_path: String -> Path of the logo file you want to add.
+    :return: PIL.Image.Image -> Image with added logo.
+    """
     logo = Image.open(logo_path)
-
     # Fotoğrafın boyutlarını al
     foto_genislik, foto_yukseklik = yeni_gorsel.size
-
     # Logo boyutunu belirle
     logo_boyut = (230, 192)  # İhtiyaca göre değiştirilebilir
     kucuk_logo = logo.resize(logo_boyut)
-
     # Logo'yu ortalanmış konuma yerleştir
     x_konum = (foto_genislik - logo_boyut[0]) // 2
     y_konum = 50  # (foto_yukseklik - logo_boyut[1]) // 4  # Yukarı ortaya daha yakın bir konum
@@ -119,6 +144,13 @@ def logo_add(yeni_gorsel, logo_path="C:/Users/ASUS/PycharmProjects/spaceship-tit
 
 
 def punchline_add(yeni_gorsel, yazi_metni="AI ad banners lead to higher\nconversions ratesxxxx", yazi_rengi=(0, 0, 0)):
+    """
+    Adds the punchline text below the generated image.
+    :param yeni_gorsel: (PIL.Image.Image) -> Image to add the text to.
+    :param yazi_metni: string -> The text you want to add.
+    :param yazi_rengi: string -> hex code & Text color, default is black (0, 0, 0).
+    :return: PIL.Image.Image -> Image with added text.
+    """
     # Yazı tipini ve boyutunu belirle
     yazi_tipi = ImageFont.truetype(
         "C:/Users/ASUS/PycharmProjects/spaceship-titanic/fonts/PlayfairDisplay-VariableFont_wght.ttf", size=70)
@@ -141,13 +173,22 @@ def punchline_add(yeni_gorsel, yazi_metni="AI ad banners lead to higher\nconvers
         yazi_yukseklik = 75
         y_konum += yazi_yukseklik
         """
-          draw.text(((yeni_gorsel.width - yazi_genislik) // 2, y_konum), row, font=yazi_tipi, fill=yazi_rengi)
-        yazi_yukseklik = draw.textsize(text=row, font=yazi_tipi)
+        draw.text(((yeni_gorsel.width - yazi_genislik) // 2, y_konum), row, font=yazi_tipi, fill=yazi_rengi)
+        yazi_yukseklik = draw.textsize(text=row, font=yazi_tipi) # textsize is deprecated
         y_konum += yazi_yukseklik"""
     return yeni_gorsel
 
 
 def add_button(yeni_gorsel, button_text, button_color="#316346", padding=10, corner_radius=20):
+    """
+    Adds a button the generated image
+    :param yeni_gorsel: PIL.Image.Image
+    :param button_text: string -> user button text
+    :param button_color: string -> hex code
+    :param padding: int -> default is 10
+    :param corner_radius: int -> default is 20
+    :return: return: PIL.Image.Image -> Image with added button.
+    """
     # Görselin genişliği ve yüksekliğini al
     width, height = yeni_gorsel.size
     # Button boyutları ve konumu belirle
@@ -209,6 +250,15 @@ def add_button(yeni_gorsel, button_text, button_color="#316346", padding=10, cor
 
 
 def task2_imp(image, logo_path, button_color, punchline_text, button_text):
+    """
+    Processes the images for Task 2 by adding a frame, logo, punchline, and a button.
+    :param image: (PIL.Image.Image) ->  The input image(s) for processing.
+    :param logo_path: string -> The logo path that user's selected
+    :param button_color: string -> hex code
+    :param punchline_text: string -> The text for the punchline.
+    :param button_text: string -> The text for the button
+    :return:
+    """
     if images and hasattr(images, 'images') and isinstance(images.images, list) and isinstance(images.images[0],
                                                                                                Image.Image):
         yeni_gorsel = cerceve(image)
@@ -226,6 +276,7 @@ def task2_imp(image, logo_path, button_color, punchline_text, button_text):
         print("Error: The images object is empty or does not contain a PIL Image object.")
 
 
+# taking input from user
 logo_input = input("Logo dosyasının yolunu girin (örneğin: logo.png): ")  # C:\Users\ASUS\PycharmProjects\spaceship-titanic\logos\cland.png
 button_color_input = input("Button & Punchline için bir renk girin (hex kodu): ")  # #1411F1 , org color : #316346
 punchline_text_input = input("Punchline için bir text girin (Alt satıra geçmek için '\\n' kullanabilirsiniz): ")  # AI ad banners lead to higher\nconversions ratesxxxx  ## https://stackoverflow.com/questions/38401450/n-in-strings-not-working
