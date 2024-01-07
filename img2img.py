@@ -65,8 +65,10 @@ def create_image(init_image, prompt, user_color):
 # taking input from user
 user_image = input("Resim dosyasının yolunu girin (örneğin: image.png): ")  # C:/Users/ASUS/Desktop/kahve.png, C:/Users/ASUS/Desktop/kahve2.png
 user_prompt = input(
-    "Promptu girin: ")  # Chocolate coffee, Taken under natural light, a photograph can create a warm and inviting atmosphere. If the shoot is outdoors, the sunlight can beautifully highlight the froth on the coffee, adding a lovely emphasis to the cup.
-user_color = input("Görselde kullanmak için bir renk girin (hex kodu): ")  # #0000ff
+    "Promptu girin: ")
+# A coffee photo with heart-shaped patterns, creating a warm atmosphere, featuring rising steam above the coffee, and highlighted by delightful foam.
+# Chocolate coffee, Taken under natural light, a photograph can create a warm and inviting atmosphere. If the shoot is outdoors, the sunlight can beautifully highlight the froth on the coffee, adding a lovely emphasis to the cup.
+user_color = input("Görselde kullanmak için bir renk girin (hex kodu): ")  # #0000ff , #000000
 
 # implementation of task1
 def task1_imp(user_image, user_prompt, user_color):
@@ -88,7 +90,7 @@ def task1_imp(user_image, user_prompt, user_color):
     if images and hasattr(images, 'images') and isinstance(images.images, list) and isinstance(images.images[0],
                                                                                                Image.Image):
 
-        sonuc_path = "C:/Users/ASUS/PycharmProjects/spaceship-titanic/task1_generated_photo/task1_7.png"
+        sonuc_path = "C:/Users/ASUS/PycharmProjects/spaceship-titanic/task1_generated_photo/task1_11.png"
         images.images[0].save(sonuc_path)
         return images
     else:
@@ -269,7 +271,7 @@ def task2_imp(image, logo_path, button_color, punchline_text, button_text):
         # button
         yeni_gorsel = add_button(yeni_gorsel, button_text=button_text, button_color=button_color)
         # Sonucu kaydet
-        sonuc_path = "C:/Users/ASUS/PycharmProjects/spaceship-titanic/task2_generated_photo/task2_7.png"
+        sonuc_path = "C:/Users/ASUS/PycharmProjects/spaceship-titanic/task2_generated_photo/task2_11.png"
         yeni_gorsel.save(sonuc_path)
         return yeni_gorsel
     else:
