@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Task Form</title>
+</head>
+<body>
+    <h1>Task Form</h1>
+    <form action="/task1" method="post" enctype="multipart/form-data">
+        <label for="user_image">User Image:</label>
+        <input type="file" id="user_image" name="user_image" accept="image/*" required>
+        <br>
+        <label for="user_prompt">User Prompt:</label>
+        <input type="text" id="user_prompt" name="user_prompt" required>
+        <br>
+        <label for="user_color">User Color:</label>
+        <input type="text" id="user_color" name="user_color" required>
+        <br>
+        <button type="submit">Submit Task 1</button>
+    </form>
+
+    <hr>
+
+     <h2>Task 1 Result</h2>
+    <!-- Display the Task 1 generated image -->
+    <img src="{{ image_path }}" alt="Task 1 Result">
+
+
+    <form action="/task2" method="post" enctype="multipart/form-data">
+        <label for="user_image">User Image:</label>
+        <input type="file" id="user_image2" name="user_image" accept="image/*" required>
+        <br>
+        <label for="logo_path">Logo Path:</label>
+        <input type="text" id="logo_path" name="logo_path" required>
+        <br>
+        <label for="button_color">Button Color:</label>
+        <input type="text" id="button_color" name="button_color" required>
+        <br>
+        <label for="punchline_text">Punchline Text:</label>
+        <input type="text" id="punchline_text" name="punchline_text" required>
+        <br>
+        <label for="button_text">Button Text:</label>
+        <input type="text" id="button_text" name="button_text" required>
+        <br>
+        <button type="submit">Submit Task 2</button>
+    </form>
+
+    <hr>
+
+     <h2>Task 2 Result</h2>
+    <!-- Display the Task 2 generated image -->
+    <img src="{{ image_path2 }}" alt="Task 2 Result">
+</body>
+</html>

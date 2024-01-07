@@ -1,0 +1,420 @@
+from huggingface_hub import notebook_login
+
+
+def read_token_from_file(file_path):
+    with open(file_path, 'r') as file:
+        token = file.read().strip()
+    return token
+
+
+# Specify the file path where your token is stored
+file_path = 'C:/Users/ASUS/Desktop/Projects/StableDifImgImg/huggingface-writetoken.txt'
+
+# Read the token from the file
+hugging_face_token = read_token_from_file(file_path)
+
+# Use the token as needed
+notebook_login(hugging_face_token)
+
+import inspect
+from typing import List, Optional, Union
+
+import numpy as np
+import torch
+
+import PIL
+from diffusers import AutoencoderKL, DDIMScheduler, DiffusionPipeline, PNDMScheduler, UNet2DConditionModel
+from diffusers.pipelines.stable_diffusion import StableDiffusionSafetyChecker
+from tqdm.auto import tqdm
+from transformers import CLIPFeatureExtractor, CLIPTextModel, CLIPTokenizer
+
+
+def preprocess(image):
+    w, h = image.size
+    w, h = map(lambda x: x - x % 32, (w, h))  # resize to integer multiple of 32
+    image = image.resize((w, h), resample=PIL.Image.LANCZOS)
+    image = np.array(image).astype(np.float32) / 255.0
+    image = image[None].transpose(0, 3, 1, 2)
+    image = torch.from_numpy(image)
+    return 2.0 * image - 1.0
+
+
+class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
+    def __init__(
+            self,
+            vae: AutoencoderKL,
+            text_encoder: CLIPTextModel,
+            tokenizer: CLIPTokenizer,
+            unet: UNet2DConditionModel,
+            scheduler: Union[DDIMScheduler, PNDMScheduler],
+            safety_checker: StableDiffusionSafetyChecker,
+            feature_extractor: CLIPFeatureExtractor,
+    ):
+        super().__init__()
+        scheduler = scheduler.set_format("pt")
+        self.register_modules(
+            vae=vae,
+            text_encoder=text_encoder,
+            tokenizer=tokenizer,
+            unet=unet,
+            scheduler=scheduler,
+            safety_checker=safety_checker,
+            feature_extractor=feature_extractor,
+        )
+
+    @torch.no_grad()
+    def __call__(
+            self,
+            prompt: Union[str, List[str]],
+            init_image: torch.FloatTensor,
+            strength: float = 0.8,
+            num_inference_steps: Optional[int] = 50,
+            guidance_scale: Optional[float] = 7.5,
+            eta: Optional[float] = 0.0,
+            generator: Optional[torch.Generator] = None,
+            output_type: Optional[str] = "pil",
+    ):
+        if isinstance(prompt, str):
+            batch_size = 1
+        elif isinstance(prompt, list):
+            batch_size = len(prompt)
+        else:
+            raise ValueError(f"`prompt` has to be of type `str` or `list` but is {type(prompt)}")
+
+        # set timesteps
+        accepts_offset = "offset" in set(inspect.signature(self.scheduler.set_timesteps).parameters.keys())
+        extra_set_kwargs = {}
+        offset = 0
+        if accepts_offset:
+            offset = 1
+            extra_set_kwargs["offset"] = 1
+
+        self.scheduler.set_timesteps(num_inference_steps, **extra_set_kwargs)
+
+        # encode the init image into latents and scale the latents
+        init_latents = self.vae.encode(init_image.to(self.device)).sample()
+        init_latents = 0.18215 * init_latents
+
+        # prepare init_latents noise to latents
+        init_latents = torch.cat([init_latents] * batch_size)
+
+        # get the original timestep using init_timestep
+        init_timestep = int(num_inference_steps * strength) + offset
+        init_timestep = min(init_timestep, num_inference_steps)
+        timesteps = self.scheduler.timesteps[-init_timestep]
+        timesteps = torch.tensor([timesteps] * batch_size, dtype=torch.long, device=self.device)
+
+        # add noise to latents using the timesteps
+        noise = torch.randn(init_latents.shape, generator=generator, device=self.device)
+        init_latents = self.scheduler.add_noise(init_latents, noise, timesteps)
+
+        # get prompt text embeddings
+        text_input = self.tokenizer(
+            prompt,
+            padding="max_length",
+            max_length=self.tokenizer.model_max_length,
+            truncation=True,
+            return_tensors="pt",
+        )
+        text_embeddings = self.text_encoder(text_input.input_ids.to(self.device))[0]
+
+        # here `guidance_scale` is defined analog to the guidance weight `w` of equation (2)
+        # of the Imagen paper: https://arxiv.org/pdf/2205.11487.pdf . `guidance_scale = 1`
+        # corresponds to doing no classifier free guidance.
+        do_classifier_free_guidance = guidance_scale > 1.0
+        # get unconditional embeddings for classifier free guidance
+        if do_classifier_free_guidance:
+            max_length = text_input.input_ids.shape[-1]
+            uncond_input = self.tokenizer(
+                [""] * batch_size, padding="max_length", max_length=max_length, return_tensors="pt"
+            )
+            uncond_embeddings = self.text_encoder(uncond_input.input_ids.to(self.device))[0]
+
+            # For classifier free guidance, we need to do two forward passes.
+            # Here we concatenate the unconditional and text embeddings into a single batch
+            # to avoid doing two forward passes
+            text_embeddings = torch.cat([uncond_embeddings, text_embeddings])
+
+        # prepare extra kwargs for the scheduler step, since not all schedulers have the same signature
+        # eta (η) is only used with the DDIMScheduler, it will be ignored for other schedulers.
+        # eta corresponds to η in DDIM paper: https://arxiv.org/abs/2010.02502
+        # and should be between [0, 1]
+        accepts_eta = "eta" in set(inspect.signature(self.scheduler.step).parameters.keys())
+        extra_step_kwargs = {}
+        if accepts_eta:
+            extra_step_kwargs["eta"] = eta
+
+        latents = init_latents
+        t_start = max(num_inference_steps - init_timestep + offset, 0)
+        for i, t in tqdm(enumerate(self.scheduler.timesteps[t_start:])):
+            # expand the latents if we are doing classifier free guidance
+            latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents
+
+            # predict the noise residual
+            noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=text_embeddings)["sample"]
+
+            # perform guidance
+            if do_classifier_free_guidance:
+                noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+
+            # compute the previous noisy sample x_t -> x_t-1
+            latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs)["prev_sample"]
+
+            # scale and decode the image latents with vae
+            latents = 1 / 0.18215 * latents
+            image = self.vae.decode(latents)
+
+            image = (image / 2 + 0.5).clamp(0, 1)
+            image = image.cpu().permute(0, 2, 3, 1).numpy()
+
+            # run safety checker
+            safety_cheker_input = self.feature_extractor(self.numpy_to_pil(image), return_tensors="pt").to(self.device)
+            image, has_nsfw_concept = self.safety_checker(images=image, clip_input=safety_cheker_input.pixel_values)
+
+            if output_type == "pil":
+                image = self.numpy_to_pil(image)
+
+            return {"sample": image, "nsfw_content_detected": has_nsfw_concept}
+
+###############################################################################
+from torch import autocast
+import torch
+import requests
+from PIL import Image
+from PIL import ImageOps
+from io import BytesIO
+from diffusers import StableDiffusionImg2ImgPipeline
+from PIL import ImageOps
+
+# load the pipeline
+device = "cuda"
+pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
+    "CompVis/stable-diffusion-v1-4",
+    revision="fp16",
+    # variant='fp16',
+    torch_dtype=torch.float16,
+    use_auth_token=True
+).to(device)
+""" # for control 
+import torch
+print(torch.cuda.is_available())
+"""
+
+
+# url2 = "https://akn-coco.a-cdn.akinoncloud.com/products/2023/05/18/155842/4da71c2c-b327-4817-b0af-3773d0ac4d80_size690x862_cropCenter.jpg"
+# url2 = "C:/Users/ASUS/Desktop/kahve.png"
+# prompt4 = "Chocolate coffee, Taken under natural light, a photograph can create a warm and inviting atmosphere. If the shoot is outdoors, the sunlight can beautifully highlight the froth on the coffee, adding a lovely emphasis to the cup."
+# user_color = "#0000ff"
+
+########################## TASK 1 ##########################
+
+def user_color_adder(prompt, user_color):
+    text = prompt + "with a specified color hex code: (" + user_color + ") , COLOR : "
+    return text
+
+
+def create_image(init_image, prompt, user_color):
+    # for url
+    # response = requests.get(url)  # take photo
+    # init_image = Image.open(BytesIO(response.content)).convert("RGB")  # not RGBA
+    # resizing
+    init_image = init_image.resize((512, 512))  # 768,512
+    user_color_adder(prompt, user_color)  # that func add color to prompt
+    prompt_last = user_color_adder(prompt, user_color)  # added color palette
+    with autocast("cuda"):
+        images = pipe(prompt=prompt_last, image=init_image, strength=0.75, guidance_scale=7.5)  # generating images
+    return images  # return image
+
+#C:/Users/ASUS/Desktop/kahve.png, C:/Users/ASUS/Desktop/kahve2.png
+user_image = input("Resim dosyasının yolunu girin (örneğin: image.png): ")  # C:\Users\ASUS\PycharmProjects\spaceship-titanic\photos\kahve2.PNG, C:\Users\ASUS\PycharmProjects\spaceship-titanic\photos\kahve.png
+user_prompt = input(
+    "Promptu girin: ")  # Chocolate coffee, Taken under natural light, a photograph can create a warm and inviting atmosphere. If the shoot is outdoors, the sunlight can beautifully highlight the froth on the coffee, adding a lovely emphasis to the cup.
+user_color = input("Görselde kullanmak için bir renk girin (hex kodu): ")  # #0000ff
+
+
+# url2 = Image.open(user_image)
+
+def task1_imp(user_image, user_prompt, user_color):
+    # open with image to user_photo
+    user_image = Image.open(user_image)
+    # color adder func implementation
+    user_color_adder(user_prompt, user_color)
+    # generation of image
+    images = create_image(user_image, user_prompt, user_color)
+    # saving
+    if images and hasattr(images, 'images') and isinstance(images.images, list) and isinstance(images.images[0],
+                                                                                               Image.Image):
+
+        sonuc_path = "C:/Users/ASUS/PycharmProjects/spaceship-titanic/task1_generated_photo/task1_6.png"
+        images.images[0].save(sonuc_path)
+        return images
+    else:
+        print("Error: The images object is empty or does not contain a PIL Image object.")
+
+
+# applying & saving image to images
+images = task1_imp(user_image, user_prompt, user_color)
+#ff0000
+
+
+
+########################## TASK 2 ##########################
+from PIL import Image, ImageDraw, ImageFont
+
+
+# import svgwrite
+
+def cerceve(images):
+    cerceve_genislik = 350
+    # Çerçeve rengini belirle (255 beyaz için)
+    cerceve_rengi = (255, 255, 255)
+    # Yeni bir görsel oluştur
+    yeni_genislik = images.images[0].width + 2 * cerceve_genislik
+    yeni_yukseklik = images.images[0].height + 2 * cerceve_genislik + 100
+    yeni_gorsel = Image.new("RGB", (yeni_genislik, yeni_yukseklik), cerceve_rengi)
+    # Ana görseli yeni görselin içine kopyala
+    yeni_gorsel.paste(images.images[0], (cerceve_genislik, cerceve_genislik))
+    return yeni_gorsel
+
+
+def logo_add(yeni_gorsel, logo_path="C:/Users/ASUS/PycharmProjects/spaceship-titanic/logos/cland.png"):
+    # logo
+    # logo_path = "C:/Users/ASUS/Desktop/pngtree-hand.jpg"
+    logo = Image.open(logo_path)
+
+    # Fotoğrafın boyutlarını al
+    foto_genislik, foto_yukseklik = yeni_gorsel.size
+
+    # Logo boyutunu belirle
+    logo_boyut = (230, 192)  # İhtiyaca göre değiştirilebilir
+    kucuk_logo = logo.resize(logo_boyut)
+
+    # Logo'yu ortalanmış konuma yerleştir
+    x_konum = (foto_genislik - logo_boyut[0]) // 2
+    y_konum = 50  # (foto_yukseklik - logo_boyut[1]) // 4  # Yukarı ortaya daha yakın bir konum
+    yeni_gorsel.paste(kucuk_logo, (x_konum, y_konum))
+    return yeni_gorsel
+
+
+def punchline_add(yeni_gorsel, yazi_metni="AI ad banners lead to higher\nconversions ratesxxxx", yazi_rengi=(0, 0, 0)):
+    # Yazı tipini ve boyutunu belirle
+    yazi_tipi = ImageFont.truetype(
+        "C:/Users/ASUS/PycharmProjects/spaceship-titanic/fonts/PlayfairDisplay-VariableFont_wght.ttf", size=70)
+    print(yazi_metni)
+    # Yazının konumunu belirle
+    gorsel_genislik, gorsel_yukseklik = yeni_gorsel.size
+    # yazi_tipi.getsize(yazi_metni)
+    yazi_tipi.size
+    x_konum = (yeni_gorsel.width - yazi_tipi.size) // 2
+    y_konum = yeni_gorsel.height - 400  # Fotoğrafın alt kısmına 50 piksel mesafe
+    # Bir çizim nesnesi oluştur
+    draw = ImageDraw.Draw(yeni_gorsel)
+    for row in yazi_metni.split("\n"):
+        yazi_genislik = draw.textlength(text=row, font=yazi_tipi)  # text=yazi_metni
+        # Yazıyı çiz
+        bb_l, bb_t, bb_r, bb_b = draw.textbbox((x_konum, y_konum), row)
+        x = x_konum + (bb_r - bb_l) / 2
+        y = y_konum + (bb_b - bb_t) / 2
+        draw.text(((yeni_gorsel.width - yazi_genislik) // 2, int(y)), row, font=yazi_tipi, fill=yazi_rengi)
+        yazi_yukseklik = 75
+        y_konum += yazi_yukseklik
+        """
+          draw.text(((yeni_gorsel.width - yazi_genislik) // 2, y_konum), row, font=yazi_tipi, fill=yazi_rengi)
+        yazi_yukseklik = draw.textsize(text=row, font=yazi_tipi)
+        y_konum += yazi_yukseklik"""
+    return yeni_gorsel
+
+
+def add_button(yeni_gorsel, button_text, button_color="#316346", padding=10, corner_radius=20):
+    # Görselin genişliği ve yüksekliğini al
+    width, height = yeni_gorsel.size
+    # Button boyutları ve konumu belirle
+    button_width = 400
+    button_height = 100
+    button_x = (width - button_width) // 2
+    button_y = height - 150
+    # Bir çizim nesnesi oluştur
+    draw = ImageDraw.Draw(yeni_gorsel)
+
+    # Adjust the button dimensions for padding
+    button_x += padding
+    button_y += padding
+    button_width -= 2 * padding
+    button_height -= 2 * padding
+
+    # Draw rounded rectangle for the button
+    draw.rounded_rectangle(
+        [button_x, button_y, button_x + button_width, button_y + button_height],
+        fill=button_color,
+        radius=corner_radius
+    )
+
+    # Buton üzerine metni çiz
+    button_font_size = 30
+    button_font = ImageFont.truetype("arial.ttf", size=button_font_size)
+
+    # Metni ortalamak için textbbox fonksiyonunu kullanma
+    bb_l, bb_t, bb_r, bb_b = draw.textbbox((button_x, button_y, button_x + button_width, button_y + button_height),
+                                           button_text, font=button_font)
+
+    # Yazının boyutlarını kontrol et
+    text_width = bb_r - bb_l
+    text_height = bb_b - bb_t
+
+    # Yazıyı buton sınırları içinde sığdır
+    max_text_width = button_width - 2 * padding
+    max_text_height = button_height - 2 * padding
+
+    if text_width > max_text_width:
+        # Yazının genişliği buton genişliğini aşıyorsa, boyutunu küçült
+        button_font_size = int(button_font_size * max_text_width / text_width)
+        button_font = ImageFont.truetype("arial.ttf", size=button_font_size)
+
+    if text_height > max_text_height:
+        # Yazının yüksekliği buton yüksekliğini aşıyorsa, boyutunu küçült
+        button_font_size = int(button_font_size * max_text_height / text_height)
+        button_font = ImageFont.truetype("arial.ttf", size=button_font_size)
+
+    # Metni ortalamak için textbbox fonksiyonunu kullanma
+    bb_l, bb_t, bb_r, bb_b = draw.textbbox((button_x, button_y, button_x + button_width, button_y + button_height),
+                                           button_text, font=button_font)
+
+    text_x = button_x + (button_width - text_width) // 2
+    text_y = button_y + (button_height - text_height) // 2
+    draw.text((text_x, text_y), button_text, font=button_font, fill="white")
+
+    return yeni_gorsel
+
+
+def task2_imp(image, logo_path, button_color, punchline_text, button_text):
+    if images and hasattr(images, 'images') and isinstance(images.images, list) and isinstance(images.images[0],
+                                                                                               Image.Image):
+        yeni_gorsel = cerceve(image)
+        # logo
+        yeni_gorsel = logo_add(yeni_gorsel, logo_path)
+        # punchline
+        yeni_gorsel = punchline_add(yeni_gorsel=yeni_gorsel, yazi_metni=punchline_text, yazi_rengi=button_color) # yazi_metni="AI ad banners lead to higher\nconversions ratesxxxx"
+        # button
+        yeni_gorsel = add_button(yeni_gorsel, button_text=button_text, button_color=button_color)
+        # Sonucu kaydet
+        sonuc_path = "C:/Users/ASUS/PycharmProjects/spaceship-titanic/task2_generated_photo/task2_6.png"
+        yeni_gorsel.save(sonuc_path)
+        return yeni_gorsel
+    else:
+        print("Error: The images object is empty or does not contain a PIL Image object.")
+
+
+logo_input = input("Logo dosyasının yolunu girin (örneğin: logo.png): ")  # C:\Users\ASUS\PycharmProjects\spaceship-titanic\logos\cland.png
+button_color_input = input("Button & Punchline için bir renk girin (hex kodu): ")  # #1411F1 , org color : #316346
+punchline_text_input = input("Punchline için bir text girin (Alt satıra geçmek için '\\n' kullanabilirsiniz): ")  # AI ad banners lead to higher\nconversions ratesxxxx  ## https://stackoverflow.com/questions/38401450/n-in-strings-not-working
+punchline_text_input = punchline_text_input.replace("\\n", "\n")
+button_text_input = input("Button için bir text girin: ")  # Call to action text here! >
+
+new_image = task2_imp(image=images, logo_path=logo_input, button_color=button_color_input, punchline_text=str(punchline_text_input),
+          button_text=button_text_input)
+
+
+########################## TASK 3 ##########################
+
+# app.py
