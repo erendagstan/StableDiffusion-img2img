@@ -28,7 +28,7 @@ Task 3 represents the Flask application serving the image generation API.
    pip install -r requirements.txt
 
 ## License
-This project is licensed under the MIT License.
+This project is licensed under the MIT License. See the [LICENSE.md](LICENSE) file for details.
 
 ## App
 Selected user image :
