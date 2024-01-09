@@ -9,6 +9,7 @@ from io import BytesIO
 from diffusers import StableDiffusionImg2ImgPipeline
 from PIL import ImageOps
 
+
 # load the pipeline
 device = "cuda"
 pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
