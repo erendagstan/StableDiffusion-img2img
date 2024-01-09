@@ -14,9 +14,6 @@ def intro():
     st.write("<h1 style='text-align: center; color: #e0392d;'>Creative Image Processing and Ad Design 🤖</h1>",
              unsafe_allow_html=True)
 
-    #st.write("# :red[Creative Image Processing and Ad Design] 🤖")
-    # st.sidebar.success("Select a page above.")
-
     # Introduction
     st.header(":blue[Introduction]")
     st.write("Hello everyone, I'm Mert Eren Dagistan, and today I'm thrilled to showcase a versatile Python program "
@@ -28,7 +25,6 @@ def intro():
 
     ## User Interaction
     st.write("<h3 style='color: #d6807a;'>1.1 User Interaction</h3>", unsafe_allow_html=True)
-    #st.subheader(":orange[1.1 User Interaction]")
     st.write("- **Photo Upload:** Users can start by uploading a photo of their choice.")
     st.write(
         "- **Prompt Input:** Add a personalized touch by inputting a prompt that guides the image customization process.")
@@ -104,10 +100,7 @@ def generation_page():
 
     os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
-    # st.set_option('deprecation.showfileUploaderEncoding', False)
 
-
-    #@st.cache(allow_output_mutation=True)  # Set allow_output_mutation to True for non-hashable objects like PyTorch models
     @st.cache_resource
     def load_pipeline():
         device = "cuda"
