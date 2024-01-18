@@ -182,8 +182,8 @@ def generation_page():
 
     prompt = st1.text_input("Enter the prompt: 💻")
 
-    color = st1.text_input("Enter the color (hex format): 🎨")
-
+    #color = st1.text_input("Enter the color (hex format): 🎨")
+    color = st1.color_picker('Pick the color (hex format): 🎨', '#00f900')
     def generate_image(image, prompt, color):
         images = task1_imp(user_image=image, user_prompt=prompt, user_color=color)
         return images.images[0]
@@ -394,7 +394,8 @@ def generation_page():
         # image_choosen =
 
     logo_input = st2.text_input("Enter the logo path: 📂")
-    button_color_input = st2.text_input("Enter a color (hex format) for Button and Punchline: 🎨")
+    #button_color_input = st2.text_input("Enter a color (hex format) for Button and Punchline: 🎨")
+    button_color_input = st2.color_picker('Pick a color (hex format) for Button and Punchline: 🎨', '#00f900')
     punchline_text_input = st2.text_input(
         "Enter text for the punchline (You can use '\\n' to move to the bottom line): ✍")
     punchline_text_input = punchline_text_input.replace("\\n", "\n")
